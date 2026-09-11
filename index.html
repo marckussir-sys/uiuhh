@@ -55,12 +55,20 @@
   .hud {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
     width: 100%;
     max-width: 600px;
     font-size: 14px;
     color: var(--crt-green);
     letter-spacing: 1px;
     text-shadow: 0 0 4px rgba(61,220,132,0.6);
+  }
+
+  .records {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
   }
 
   .hi-badge {
@@ -72,23 +80,52 @@
     font-weight: bold;
     text-shadow: none;
     box-shadow: 0 0 8px rgba(255,59,48,0.6);
+    transform: translateY(-3px);
+  }
+
+  .hi-badge-auto {
+    display: inline-block;
+    background: var(--crt-amber);
+    color: #1a1200;
+    padding: 2px 10px;
+    border-radius: 2px 12px 2px 12px;
+    font-weight: bold;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-shadow: none;
+    box-shadow: 0 0 8px rgba(255,176,0,0.55);
   }
 
   .hint {
     font-size: 12px;
     color: var(--crt-green-dim);
-    margin-top: 4px;
+    margin-top: 14px;
     text-align: center;
+  }
+
+  .automode-label {
+    display: none;
+    letter-spacing: 6px;
+    font-size: 13px;
+    color: var(--crt-green-bright);
+    text-shadow: 0 0 6px rgba(125,255,176,0.7), 0 0 14px rgba(61,220,132,0.4);
+    margin-top: 14px;
+  }
+
+  .automode-label.show {
+    display: block;
   }
 
   .overlay {
     position: absolute;
-    text-align: center;
-    color: var(--crt-green);
+    inset: 0;
     display: none;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    color: var(--crt-green);
     pointer-events: none;
   }
 
@@ -99,6 +136,7 @@
     letter-spacing: 3px;
     color: var(--crt-red);
     text-shadow: 0 0 8px rgba(255,59,48,0.6);
+    margin-bottom: 6px;
   }
 
   .overlay .btn {
@@ -141,7 +179,10 @@
   <h1>CHERRY</h1>
 
   <div class="hud" style="max-width: 600px;">
-    <span id="hiScore" class="hi-badge">HI 0000</span>
+    <div class="records">
+      <span id="hiScore" class="hi-badge">HI 0000</span>
+      <span id="hiScoreAuto" class="hi-badge-auto">AFK 0000</span>
+    </div>
     <span id="score">0000</span>
   </div>
 
@@ -154,7 +195,8 @@
     </div>
   </div>
 
-  <div class="hint">SPACE / ↑ / TAP — прыжок &nbsp;•&nbsp; ↓ — присесть</div>
+  <div class="hint">SPACE / ↑ / TAP — прыжок &nbsp;•&nbsp; ↓ — присесть &nbsp;•&nbsp; G — автопилот</div>
+  <div id="autoModeLabel" class="automode-label">[automode]</div>
 </div>
 
 <script>
@@ -167,18 +209,27 @@
 
   const scoreEl = document.getElementById('score');
   const hiScoreEl = document.getElementById('hiScore');
+  const hiScoreAutoEl = document.getElementById('hiScoreAuto');
   const overlay = document.getElementById('overlay');
   const overlayTitle = document.getElementById('overlayTitle');
   const startBtn = document.getElementById('startBtn');
+  const autoModeLabel = document.getElementById('autoModeLabel');
+
+  let autoMode = false;
 
   const COLOR_GREEN = '#3ddc84';
   const COLOR_GREEN_DIM = '#1f6b45';
   const COLOR_GREEN_BRIGHT = '#7dffb0';
   const COLOR_RED = '#ff3b30';
+  const COLOR_AMBER = '#ffb000';
   const COLOR_BG = '#030a06';
 
+  let autoModeUsedThisRun = false;
+
   let hiScore = Math.floor(Number(localStorage.getItem('pixelRunHiScore') || 0));
+  let hiScoreAuto = Math.floor(Number(localStorage.getItem('pixelRunHiScoreAuto') || 0));
   hiScoreEl.textContent = 'HI ' + String(hiScore).padStart(4, '0');
+  hiScoreAutoEl.textContent = 'AFK ' + String(hiScoreAuto).padStart(4, '0');
 
   // ---------- Player ----------
   const player = {
@@ -226,6 +277,7 @@
     frame = 0;
     gameOver = false;
     running = true;
+    autoModeUsedThisRun = autoMode;
   }
 
   function jump() {
@@ -251,14 +303,52 @@
   function endGame() {
     running = false;
     gameOver = true;
-    if (score > hiScore) {
-      hiScore = Math.floor(score);
-      localStorage.setItem('pixelRunHiScore', String(hiScore));
-      hiScoreEl.textContent = 'HI ' + String(hiScore).padStart(4, '0');
+    const finalScore = Math.floor(score);
+
+    if (autoModeUsedThisRun) {
+      if (finalScore > hiScoreAuto) {
+        hiScoreAuto = finalScore;
+        localStorage.setItem('pixelRunHiScoreAuto', String(hiScoreAuto));
+        hiScoreAutoEl.textContent = 'AFK ' + String(hiScoreAuto).padStart(4, '0');
+      }
+    } else {
+      if (finalScore > hiScore) {
+        hiScore = finalScore;
+        localStorage.setItem('pixelRunHiScore', String(hiScore));
+        hiScoreEl.textContent = 'HI ' + String(hiScore).padStart(4, '0');
+      }
     }
+
     overlayTitle.textContent = 'GAME OVER';
     startBtn.textContent = 'RETRY';
     overlay.classList.add('show');
+  }
+
+  function toggleAutoMode() {
+    autoMode = !autoMode;
+    if (autoMode) autoModeUsedThisRun = true;
+    autoModeLabel.classList.toggle('show', autoMode);
+    if (autoMode && !started) startGame();
+  }
+
+  // ---------- Auto-play ----------
+  function autoPlay() {
+    if (!running || player.jumping) return;
+
+    let nearest = null;
+    for (const o of obstacles) {
+      if (o.x + o.w < player.x) continue;
+      if (nearest === null || o.x < nearest.x) nearest = o;
+    }
+    if (!nearest) return;
+
+    const needsJump = nearest.type === 'cactus' || (nearest.type === 'bird' && nearest.y > GROUND_Y - 50);
+    if (!needsJump) return;
+
+    const triggerDist = 55 + speed * 9;
+    if (nearest.x - (player.x + player.w) <= triggerDist) {
+      jump();
+    }
   }
 
   // ---------- Obstacles ----------
@@ -351,7 +441,7 @@
 
     // мотающееся ушко
     const earWiggle = Math.sin(frame / 5) * 6;
-    ctx.fillStyle = COLOR_RED;
+    ctx.fillStyle = autoMode ? COLOR_AMBER : COLOR_RED;
     ctx.beginPath();
     ctx.moveTo(-bodyW / 2 + 6, -bodyH / 2 + 2);
     ctx.lineTo(-bodyW / 2 - 8, -bodyH / 2 - 14 + earWiggle);
@@ -458,6 +548,8 @@
       if (nextSpawnIn < 35) nextSpawnIn = 35;
     }
 
+    if (autoMode) autoPlay();
+
     const px = player.x;
     const py = player.ducking ? GROUND_Y - player.duckH : player.y;
     const pw = player.ducking ? player.w + 14 : player.w;
@@ -510,6 +602,9 @@
     } else if (e.code === 'ArrowDown') {
       e.preventDefault();
       duck(true);
+    } else if (e.code === 'KeyG') {
+      e.preventDefault();
+      toggleAutoMode();
     }
   });
 
