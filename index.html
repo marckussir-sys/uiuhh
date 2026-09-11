@@ -94,6 +94,13 @@
     letter-spacing: 1px;
     text-shadow: none;
     box-shadow: 0 0 8px rgba(255,176,0,0.55);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s ease;
+  }
+
+  .hi-badge-auto:active {
+    transform: scale(0.93);
   }
 
   .hint {
@@ -614,6 +621,7 @@
 
   canvas.addEventListener('pointerdown', () => jump());
   startBtn.addEventListener('click', () => startGame());
+  hiScoreAutoEl.addEventListener('click', () => toggleAutoMode());
 
   // initial static frame
   draw();
