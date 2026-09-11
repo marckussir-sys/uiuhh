@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CHERRY</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --crt-bg: #030a06;
+    --crt-green: #3ddc84;
+    --crt-green-dim: #1f6b45;
+    --crt-green-bright: #7dffb0;
+    --crt-red: #ff3b30;
+    --crt-amber: #ffb000;
+  }
+
+  body {
+    background:
+      radial-gradient(circle, rgba(61,220,132,0.09) 1px, transparent 1.2px) 0 0/6px 6px,
+      var(--crt-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    touch-action: manipulation;
+    user-select: none;
+  }
+
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  h1 {
+    letter-spacing: 6px;
+    font-size: 20px;
+    color: var(--crt-green-bright);
+    text-shadow: 0 0 6px rgba(125,255,176,0.7), 0 0 14px rgba(61,220,132,0.4);
+  }
+
+  #gameCanvas {
+    background: var(--crt-bg);
+    border: 2px solid var(--crt-green-dim);
+    box-shadow: 0 0 18px rgba(61,220,132,0.25), inset 0 0 30px rgba(0,0,0,0.6);
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 600px;
+    font-size: 14px;
+    color: var(--crt-green);
+    letter-spacing: 1px;
+    text-shadow: 0 0 4px rgba(61,220,132,0.6);
+  }
+
+  .hi-badge {
+    display: inline-block;
+    background: var(--crt-red);
+    color: #0a0a0a;
+    padding: 3px 12px;
+    border-radius: 2px 14px 2px 14px;
+    font-weight: bold;
+    text-shadow: none;
+    box-shadow: 0 0 8px rgba(255,59,48,0.6);
+  }
+
+  .hint {
+    font-size: 12px;
+    color: var(--crt-green-dim);
+    margin-top: 4px;
+    text-align: center;
+  }
+
+  .overlay {
+    position: absolute;
+    text-align: center;
+    color: var(--crt-green);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+  }
+
+  .overlay.show { display: flex; }
+
+  .overlay h2 {
+    font-size: 22px;
+    letter-spacing: 3px;
+    color: var(--crt-red);
+    text-shadow: 0 0 8px rgba(255,59,48,0.6);
+  }
+
+  .overlay .btn {
+    pointer-events: all;
+    cursor: pointer;
+    border: 2px solid var(--crt-green);
+    background: rgba(3,10,6,0.7);
+    color: var(--crt-green);
+    padding: 8px 18px;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-shadow: 0 0 4px rgba(61,220,132,0.6);
+  }
+
+  .overlay .btn:hover { background: var(--crt-red); border-color: var(--crt-red); color: #0a0a0a; text-shadow: none; }
+
+  .canvas-holder {
+    position: relative;
+  }
+
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 1px,
+      rgba(0,0,0,0.25) 2px,
+      rgba(0,0,0,0.25) 3px
+    );
+    mix-blend-mode: multiply;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>CHERRY</h1>
+
+  <div class="hud" style="max-width: 600px;">
+    <span id="hiScore" class="hi-badge">HI 0000</span>
+    <span id="score">0000</span>
+  </div>
+
+  <div class="canvas-holder">
+    <canvas id="gameCanvas" width="600" height="200"></canvas>
+    <div class="scanlines"></div>
+    <div id="overlay" class="overlay show">
+      <h2 id="overlayTitle">CHERRY</h2>
+      <button class="btn" id="startBtn">START</button>
+    </div>
+  </div>
+
+  <div class="hint">SPACE / ↑ / TAP — прыжок &nbsp;•&nbsp; ↓ — присесть</div>
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const GROUND_Y = H - 20;
+
+  const scoreEl = document.getElementById('score');
+  const hiScoreEl = document.getElementById('hiScore');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const startBtn = document.getElementById('startBtn');
+
+  const COLOR_GREEN = '#3ddc84';
+  const COLOR_GREEN_DIM = '#1f6b45';
+  const COLOR_GREEN_BRIGHT = '#7dffb0';
+  const COLOR_RED = '#ff3b30';
+  const COLOR_BG = '#030a06';
+
+  let hiScore = Math.floor(Number(localStorage.getItem('pixelRunHiScore') || 0));
+  hiScoreEl.textContent = 'HI ' + String(hiScore).padStart(4, '0');
+
+  // ---------- Player ----------
+  const player = {
+    x: 40,
+    y: GROUND_Y - 40,
+    w: 32,
+    h: 40,
+    duckH: 24,
+    vy: 0,
+    jumping: false,
+    ducking: false,
+    legFrame: 0,
+    legTimer: 0
+  };
+
+  const GRAVITY = 0.7;
+  const JUMP_FORCE = -12.5;
+
+  // ---------- Game state ----------
+  let obstacles = [];
+  let clouds = [];
+  let groundOffset = 0;
+  let speed = 6;
+  const BASE_SPEED = 6;
+  const MAX_SPEED = 13;
+  let score = 0;
+  let frame = 0;
+  let running = false;
+  let gameOver = false;
+  let started = false;
+
+  function reset() {
+    player.y = GROUND_Y - player.h;
+    player.vy = 0;
+    player.jumping = false;
+    player.ducking = false;
+    obstacles = [];
+    clouds = [
+      { x: 150, y: 30, w: 40 },
+      { x: 380, y: 60, w: 30 },
+      { x: 520, y: 20, w: 46 }
+    ];
+    speed = BASE_SPEED;
+    score = 0;
+    frame = 0;
+    gameOver = false;
+    running = true;
+  }
+
+  function jump() {
+    if (!started) { startGame(); return; }
+    if (gameOver) { startGame(); return; }
+    if (!player.jumping) {
+      player.jumping = true;
+      player.vy = JUMP_FORCE;
+    }
+  }
+
+  function duck(state) {
+    if (player.jumping) return;
+    player.ducking = state;
+  }
+
+  function startGame() {
+    started = true;
+    overlay.classList.remove('show');
+    reset();
+  }
+
+  function endGame() {
+    running = false;
+    gameOver = true;
+    if (score > hiScore) {
+      hiScore = Math.floor(score);
+      localStorage.setItem('pixelRunHiScore', String(hiScore));
+      hiScoreEl.textContent = 'HI ' + String(hiScore).padStart(4, '0');
+    }
+    overlayTitle.textContent = 'GAME OVER';
+    startBtn.textContent = 'RETRY';
+    overlay.classList.add('show');
+  }
+
+  // ---------- Obstacles ----------
+  function spawnObstacle() {
+    const isBird = score > 150 && Math.random() < 0.28;
+    if (isBird) {
+      const heightOptions = [GROUND_Y - 40, GROUND_Y - 70, GROUND_Y - 95];
+      obstacles.push({
+        type: 'bird',
+        x: W + 20,
+        y: heightOptions[Math.floor(Math.random() * heightOptions.length)],
+        w: 34,
+        h: 24,
+        frame: 0
+      });
+    } else {
+      const cluster = Math.random() < 0.3 ? 2 : 1;
+      for (let i = 0; i < cluster; i++) {
+        const size = 18 + Math.random() * 14;
+        obstacles.push({
+          type: 'cactus',
+          x: W + 20 + i * (size + 10),
+          y: GROUND_Y - size,
+          w: size * 0.6,
+          h: size
+        });
+      }
+    }
+  }
+
+  let nextSpawnIn = 60;
+
+  // ---------- Drawing ----------
+  function drawGround() {
+    ctx.strokeStyle = COLOR_GREEN;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(W, GROUND_Y);
+    ctx.stroke();
+
+    ctx.fillStyle = COLOR_GREEN;
+    for (let i = 0; i < 40; i++) {
+      const x = (i * 25 - groundOffset % 25);
+      if (Math.random() < 0.02) continue;
+      ctx.fillRect(x, GROUND_Y + 4, 8, 2);
+    }
+  }
+
+  function drawClouds() {
+    ctx.fillStyle = COLOR_GREEN_DIM;
+    clouds.forEach(c => {
+      ctx.fillRect(c.x, c.y, c.w, 6);
+      ctx.fillRect(c.x + 6, c.y - 5, c.w - 14, 5);
+    });
+  }
+
+  function drawPlayer() {
+    const duck = player.ducking;
+    const h = duck ? player.duckH : player.h;
+    const y = duck ? GROUND_Y - player.duckH : player.y;
+    const w = duck ? player.w + 14 : player.w;
+    const cx = player.x + w / 2;
+    const cy = y + h / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // лёгкое покачивание на бегу
+    const bob = (!player.jumping && !duck) ? Math.sin(frame / 6) * 2 : 0;
+    ctx.translate(0, bob);
+
+    // сжатие/растяжение при прыжке и приседании
+    let squashX = 1, squashY = 1;
+    if (player.jumping) {
+      squashY = player.vy < 0 ? 1.1 : 0.92;
+      squashX = player.vy < 0 ? 0.9 : 1.08;
+    }
+    if (duck) { squashY = 0.55; squashX = 1.2; }
+    ctx.scale(squashX, squashY);
+
+    const bodyW = w + 4;
+    const bodyH = h - 6;
+
+    // тело (круглый блоб)
+    ctx.fillStyle = COLOR_GREEN;
+    ctx.beginPath();
+    ctx.ellipse(0, 4, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // мотающееся ушко
+    const earWiggle = Math.sin(frame / 5) * 6;
+    ctx.fillStyle = COLOR_RED;
+    ctx.beginPath();
+    ctx.moveTo(-bodyW / 2 + 6, -bodyH / 2 + 2);
+    ctx.lineTo(-bodyW / 2 - 8, -bodyH / 2 - 14 + earWiggle);
+    ctx.lineTo(-bodyW / 2 + 14, -bodyH / 2 - 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // румяные щёчки
+    ctx.fillStyle = COLOR_RED;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.arc(-bodyW / 2 + 10, 8, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // большие смешные глаза
+    const eyeY = -bodyH / 2 + 15;
+    ctx.fillStyle = COLOR_BG;
+    ctx.beginPath();
+    ctx.arc(8, eyeY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLOR_GREEN_BRIGHT;
+    ctx.beginPath();
+    ctx.arc(9.5, eyeY - 1.5, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // открытый рот, "дышит" на бегу
+    const mouthOpen = duck ? 2 : (player.jumping ? 5 : (Math.sin(frame / 4) > 0 ? 5 : 2));
+    ctx.fillStyle = COLOR_RED;
+    ctx.beginPath();
+    ctx.ellipse(12, eyeY + 13, 6, mouthOpen, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // высунутый язык
+    ctx.fillStyle = COLOR_GREEN_BRIGHT;
+    ctx.fillRect(10, eyeY + 13 + mouthOpen - 1, 4, 5);
+
+    ctx.restore();
+
+    // ножки
+    if (!duck) {
+      ctx.fillStyle = COLOR_GREEN;
+      const legOffset = player.legFrame === 0 ? 0 : 6;
+      ctx.fillRect(player.x + 4, y + h - 10, 6, 10 - legOffset);
+      ctx.fillRect(player.x + w - 12, y + h - 10, 6, legOffset === 0 ? 10 : 4);
+    }
+  }
+
+  function drawObstacles() {
+    ctx.fillStyle = COLOR_GREEN;
+    obstacles.forEach(o => {
+      if (o.type === 'cactus') {
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.fillRect(o.x - 4, o.y + 6, 4, 8);
+        ctx.fillRect(o.x + o.w, o.y + 10, 4, 8);
+      } else {
+        const flap = o.frame < 15 ? 0 : 8;
+        ctx.fillRect(o.x, o.y, o.w, 6);
+        ctx.fillRect(o.x + 6, o.y - flap + 4, 10, 4);
+        ctx.fillRect(o.x + o.w - 12, o.y - flap + 4, 10, 4);
+      }
+    });
+  }
+
+  function rectsOverlap(a, ax, ay, aw, ah) {
+    return !(a.x + a.w < ax || a.x > ax + aw || a.y + a.h < ay || a.y > ay + ah);
+  }
+
+  // ---------- Update ----------
+  function update() {
+    frame++;
+    groundOffset += speed;
+
+    if (speed < MAX_SPEED) speed += 0.0015;
+
+    // player physics
+    if (player.jumping) {
+      player.y += player.vy;
+      player.vy += GRAVITY;
+      if (player.y >= GROUND_Y - player.h) {
+        player.y = GROUND_Y - player.h;
+        player.jumping = false;
+        player.vy = 0;
+      }
+    } else {
+      player.legTimer++;
+      if (player.legTimer > 6) {
+        player.legTimer = 0;
+        player.legFrame = 1 - player.legFrame;
+      }
+    }
+
+    // clouds
+    clouds.forEach(c => {
+      c.x -= speed * 0.3;
+      if (c.x < -60) c.x = W + Math.random() * 100;
+    });
+
+    // obstacles
+    nextSpawnIn--;
+    if (nextSpawnIn <= 0) {
+      spawnObstacle();
+      nextSpawnIn = 55 + Math.random() * 50 - speed * 2;
+      if (nextSpawnIn < 35) nextSpawnIn = 35;
+    }
+
+    const px = player.x;
+    const py = player.ducking ? GROUND_Y - player.duckH : player.y;
+    const pw = player.ducking ? player.w + 14 : player.w;
+    const ph = player.ducking ? player.duckH : player.h;
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i];
+      o.x -= speed;
+      if (o.type === 'bird') o.frame = (o.frame + 1) % 30;
+
+      if (o.x + o.w < 0) {
+        obstacles.splice(i, 1);
+        continue;
+      }
+
+      const pad = 6;
+      if (rectsOverlap(o, px + pad, py + pad, pw - pad * 2, ph - pad * 2)) {
+        endGame();
+      }
+    }
+
+    score += 0.15;
+    scoreEl.textContent = String(Math.floor(score)).padStart(4, '0');
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.shadowColor = COLOR_GREEN;
+    ctx.shadowBlur = 5;
+    drawClouds();
+    drawGround();
+    drawObstacles();
+    drawPlayer();
+    ctx.shadowBlur = 0;
+  }
+
+  function loop() {
+    if (running) {
+      update();
+      draw();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Input ----------
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      jump();
+    } else if (e.code === 'ArrowDown') {
+      e.preventDefault();
+      duck(true);
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowDown') duck(false);
+  });
+
+  canvas.addEventListener('pointerdown', () => jump());
+  startBtn.addEventListener('click', () => startGame());
+
+  // initial static frame
+  draw();
+  loop();
+})();
+</script>
+
+</body>
+</html>
